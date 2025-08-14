@@ -33,8 +33,10 @@ typedef int platform_socket;
 
 #ifdef _MSC_VER
 #define _compiler_ALWAYS_INLINE __forceinline
-#else
+#elif defined(__clang__) || defined(__GNUC__)
 #define _compiler_ALWAYS_INLINE __attribute__((always_inline))
+#else
+#define _compiler_ALWAYS_INLINE
 #endif
 
 #include <openssl/ssl.h>
