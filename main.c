@@ -84,7 +84,7 @@ typedef struct alps_store_st {
  * false if shutdown is safe to attempt
  */
 static inline
-_Bool handle_ossl_err(SSL *ssl, int *pres, const char *desc) {
+unsigned char handle_ossl_err(SSL *ssl, int *pres, const char *desc) {
     int res = *pres;
     int errc = SSL_get_error(ssl, res);
     // TODO: make this more informative
