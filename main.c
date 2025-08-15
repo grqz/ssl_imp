@@ -54,23 +54,37 @@ typedef int platform_socket;
 #include <limits.h>
 #include <inttypes.h>
 
-static inline _compiler_ALWAYS_INLINE
-const uint8_t **_pkt_internal_check_ppu8c(const uint8_t **p) { return p; }
-#define DEFINE_CAST(Type) \
+#define pkt_internal_VOID_(...) ((void)(__VA_ARGS__))
+#define pkt_internal_NEXT_PTR_(p) (*((p)++))
+#define pkt_internal_DEFINE_CAST_(Type) \
     static inline _compiler_ALWAYS_INLINE \
-    Type _pkt_internal_cast_##Type(Type x) { return x; }
-DEFINE_CAST(uint8_t)
-DEFINE_CAST(uint16_t)
-DEFINE_CAST(uint32_t)
-DEFINE_CAST(uint64_t)
-#define _pkt_internal_pu8c(p) (*_pkt_internal_check_ppu8c(p))
-#define _pkt_internal_cast(Type, x) (_pkt_internal_cast_##Type(x))
-#define PKT_GETU8(p) _pkt_internal_cast(uint8_t, *(_pkt_internal_pu8c(p)++))
-#define PKT_GETU16(p) _pkt_internal_cast(uint16_t, ((uint16_t)PKT_GETU8(p) << 8) + PKT_GETU8(p))
+    Type pkt_internal_impl_cast_##Type(Type x) { return x; }
+pkt_internal_DEFINE_CAST_(uint8_t)
+pkt_internal_DEFINE_CAST_(uint16_t)
+pkt_internal_DEFINE_CAST_(uint32_t)
+pkt_internal_DEFINE_CAST_(uint64_t)
+
+static inline _compiler_ALWAYS_INLINE
+const uint8_t **pkt_internal_check_ppu8c_(const uint8_t **p) { return p; }
+#define pkt_internal_PU8C_(pp) (*pkt_internal_check_ppu8c_(pp))
+#define pkt_internal_CAST_(Type, x) (pkt_internal_impl_cast_##Type(x))
+#define PKT_GETU8(pp) pkt_internal_CAST_(uint8_t, pkt_internal_NEXT_PTR_(pkt_internal_PU8C_(pp)))
+#define PKT_GETU16(pp) pkt_internal_CAST_(uint16_t, ((uint16_t)PKT_GETU8(pp) << 8) + PKT_GETU8(pp))
+
+static inline _compiler_ALWAYS_INLINE
+uint8_t **pkt_internal_check_ppu8_(uint8_t **p) { return p; }
+#define pkt_internal_PU8_(pp) (*pkt_internal_check_ppu8_(pp))
+#define PKT_internal_PUTOCTET_(pp, v) (pkt_internal_NEXT_PTR_(pkt_internal_PU8_(pp)) = ((v) & 0xFF))
+#define PKT_internal_PUT2OCTET_(pp, v) (PKT_internal_PUTOCTET_(pp, v >> 8), PKT_internal_PUTOCTET_(pp, v))
+#define PKT_PUTU8(pp, v) pkt_internal_VOID_(PKT_internal_PUTOCTET_(pp, pkt_internal_CAST_(uint8_t, v)))
+#define PKT_PUTU16(pp, v) pkt_internal_VOID_(PKT_internal_PUT2OCTET_(pp, pkt_internal_CAST_(uint16_t, v)))
+
+
+#define COUNT_OF(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 
 typedef struct tls_1_3_alps_cfg_st {
     const uint8_t *proto;  // the protocol ALPN string, e.g., { 'h', '2' }
-    size_t proto_len;  // the protocol string length, e.g., 2 for h2
+    uint8_t proto_len;  // the protocol string length, e.g., 2 for h2
     const uint8_t *settings;
     size_t settings_len;
 } TLS13_ALPS_CFG;
@@ -111,7 +125,7 @@ static const size_t exdata_size_table[] = {
     #define EXDATA_ID_SSL_ALPSDATA 0
 };
 
-static int exdata_idx[sizeof(exdata_size_table) - 1];
+static int exdata_idx[COUNT_OF(exdata_size_table)];
 
 static inline
 void _osslcb_exdata_new(
@@ -180,7 +194,7 @@ static const unsigned char h2_alpn[2] = "h2";
 static const unsigned char invalidh2_alpn[9] = "hINVALID2";
 
 static inline
-void _x_SSL_get0_peer_application_settings(
+void x_SSL_get0_peer_application_settings(
     const SSL *ssl,
     const uint8_t **out_data,
     size_t *out_len
@@ -195,7 +209,7 @@ void _x_SSL_get0_peer_application_settings(
     }
 }
 static inline
-int _x_SSL_has_application_settings(const SSL *ssl) {
+int x_SSL_has_application_settings(const SSL *ssl) {
     return !!SSL_get_ex_data(ssl, exdata_idx[EXDATA_ID_SSL_ALPSDATA]);
 }
 
@@ -232,15 +246,10 @@ int _osslcb_custom_ext_add_cb_ex(
                     return *al = SSL_AD_INTERNAL_ERROR, -1;
                 }
             }
-            *(uint16_t *)ptr = htons(msg_size); ptr += 2;  // payload len
+            PKT_PUTU16(&ptr, msg_size);  // payload len
             for (size_t i = 0; i < cfgs_size; ++i) {
                 const TLS13_ALPS_CFG *current_cfg = (cfgs + i);
-                if (current_cfg->proto_len > UINT8_MAX) {
-                    fprintf(stderr, "Protocol Name too long\n");
-                    free((unsigned char *)*out);
-                    return *al = SSL_AD_INTERNAL_ERROR, -1;
-                }
-                *(ptr++) = (uint8_t)current_cfg->proto_len;
+                PKT_PUTU8(&ptr, (uint8_t)current_cfg->proto_len);
                 memcpy(ptr, current_cfg->proto, current_cfg->proto_len);
                 ptr += current_cfg->proto_len;
             }
@@ -290,18 +299,18 @@ int _osslcb_custom_ext_add_cb_ex(
             };
             } ECHClientHello;
          */
-        *(ptr++) = 0x00;  // outer
-        *(ptr++) = 0x00; *(ptr++) = 0x01;  // cipher_suite.kdf_id = HKDF_SHA256
-        *(ptr++) = 0x00; *(ptr++) = 0x01;  // cipher_suite.aead_id = AES_128_GCM
-        *(ptr++) = extlen_and_cfg_id[1];  // config_id
-        *(uint16_t *)ptr = htons(n_enc); ptr += 2;  // enc len
+        PKT_PUTU8(&ptr, 0x00);  // outer
+        PKT_PUTU16(&ptr, 0x0001);  // cipher_suite.kdf_id = HKDF_SHA256
+        PKT_PUTU16(&ptr, 0x0001);  // cipher_suite.aead_id = AES_128_GCM
+        PKT_PUTU8(&ptr, extlen_and_cfg_id[1]);  // config_id
+        PKT_PUTU16(&ptr, n_enc);  // enc len
         if (RAND_bytes(ptr, n_enc) != 1) {  // enc
             fprintf(stderr, "RAND_bytes failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
             free((unsigned char *)*out);
             return *al = SSL_AD_INTERNAL_ERROR, -1;
         }
         ptr += n_enc;
-        *(uint16_t *)ptr = htons(payld_size); ptr += 2;  // payload len
+        PKT_PUTU16(&ptr, payld_size);  // payload len
         if (RAND_bytes(ptr, payld_size) != 1) {  // payload
             fprintf(stderr, "RAND_bytes failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
             free((unsigned char *)*out);
@@ -516,14 +525,99 @@ int _osslcb_custom_ext_parse_cb_ex(
     }
 }
 
-#define REQUEST_VSN_MINOR "0"
+static inline
+unsigned char x_SSLCTX_setup_imp(SSL_CTX *ssl_ctx, TLS13_ALPS_ADD_ARG *palps_add_arg, unsigned char *alpn, unsigned int alpn_size) {
+    unsigned char ret = 0;
 
-#define REQUEST_HOSTNAME "tls.browserleaks.com"
-#define REQUEST_PATH "/json"
+    if (!SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION))
+        fputs("Warning: SSL_CTX_set_min_proto_version failed\n", stderr);
+    if (!SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION))
+        fputs("Warning: SSL_CTX_set_max_proto_version failed\n", stderr);
 
-// #define REQUEST_VSN_MINOR "1"
-// #define REQUEST_HOSTNAME "www.nytimes.com"
-// #define REQUEST_PATH "/2023/12/02/business/air-traffic-controllers-safety.html"
+    // TLS 1.3 ciphersuites
+    if (!SSL_CTX_set_ciphersuites(ssl_ctx, "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256"))
+        fputs("Warning: SSL_CTX_set_ciphersuites failed\n", stderr);
+    // TLS 1.2 and lower cipher list
+    if (!SSL_CTX_set_cipher_list(ssl_ctx, "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:TLS_RSA_WITH_AES_128_GCM_SHA256:TLS_RSA_WITH_AES_256_GCM_SHA384:TLS_RSA_WITH_AES_128_CBC_SHA:TLS_RSA_WITH_AES_256_CBC_SHA"))
+        fputs("Warning: SSL_CTX_set_cipher_list failed\n", stderr);
+
+    SSL_CTX_clear_options(ssl_ctx, SSL_OP_LEGACY_EC_POINT_FORMATS);
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_ENCRYPT_THEN_MAC);
+    if (!SSL_CTX_set1_groups_list(ssl_ctx, "*X25519MLKEM768:*X25519:secp256r1:secp384r1"))
+        fputs("Warning: SSL_CTX_set1_groups_list failed\n", stderr);
+
+    if (!SSL_CTX_set1_sigalgs_list(ssl_ctx, "ecdsa_secp256r1_sha256:rsa_pss_rsae_sha256:rsa_pkcs1_sha256:ecdsa_secp384r1_sha384:rsa_pss_rsae_sha384:rsa_pkcs1_sha384:rsa_pss_rsae_sha512:rsa_pkcs1_sha512"))
+        fputs("Warning: SSL_CTX_set1_sigalgs_list failed\n", stderr);
+
+    // Requires OpenSSL to be built with brotli
+    int compression_algo = TLSEXT_comp_cert_brotli;
+    if (!SSL_CTX_set1_cert_comp_preference(ssl_ctx, &compression_algo, 1))
+        fputs("Warning: SSL_CTX_set1_cert_comp_preference failed\n", stderr);
+
+    if (!SSL_CTX_set_tlsext_status_type(ssl_ctx, TLSEXT_STATUSTYPE_ocsp))
+        fputs("Warning: SSL_CTX_set_tlsext_status_type failed\n", stderr);
+
+    /* SSL_CTX_set_alpn_protos returns 0 for success! */
+    if (SSL_CTX_set_alpn_protos(ssl_ctx, alpn, alpn_size))
+        fputs("Warning: SSL_CTX_set_alpn_protos failed\n", stderr);
+
+    if (!SSL_CTX_enable_ct(ssl_ctx, SSL_CT_VALIDATION_PERMISSIVE))
+        fputs("Warning: SSL_CTX_enable_ct failed\n", stderr);
+
+    // TODO: shuffle GREASE, ALPS, ECH
+    if (!SSL_CTX_add_custom_ext(
+            ssl_ctx, 0x0a0a,
+            SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_SERVER_HELLO | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
+            _osslcb_custom_ext_add_cb_ex, _osslcb_custom_ext_free_cb_ex, NULL,
+            _osslcb_custom_ext_parse_cb_ex, NULL))
+        fputs("Warning: SSL_CTX_add_custom_ext failed for GREASE(0a0a)\n", stderr);
+
+    if (!SSL_CTX_add_custom_ext(
+            ssl_ctx, TLSEXT_TYPE_application_settings,
+            SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
+            _osslcb_custom_ext_add_cb_ex, _osslcb_custom_ext_free_cb_ex, palps_add_arg,
+            _osslcb_custom_ext_parse_cb_ex, NULL))
+        fputs("Warning: SSL_CTX_add_custom_ext failed for ALPS\n", stderr);
+
+    if (!SSL_CTX_add_custom_ext(
+            ssl_ctx, TLSEXT_TYPE_encrypted_client_hello,
+            SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST | SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
+            _osslcb_custom_ext_add_cb_ex, _osslcb_custom_ext_free_cb_ex, NULL,
+            _osslcb_custom_ext_parse_cb_ex, NULL))
+        fputs("Warning: SSL_CTX_add_custom_ext failed for ECH\n", stderr);
+
+    // General traffic fingerprint:
+    // Ciphersuites:
+    // missing GREASE 3a3a at the beginning
+    // Extensions:
+    // [DONE] missing GREASE 19018(4a4a), beginning
+    // supported_groups 10(a)
+    // - missing GREASE aaaa, beginning
+    // [DONE] missing ALPS 17613(44cd)
+    // - 0003026832
+    // key_share 51(33)
+    // - missing GREASE aaaa, beginning
+    // missing GREASE 6682(1a1a), end
+    //
+    // Implementation progress:
+    // GREASE: https://github.com/openssl/openssl/issues/9660
+    // Full ALPS is impossible, use a dummy ALPN
+    return ret;
+}
+
+// #define REQUEST_VSN_MINOR "0"
+
+// #define REQUEST_HOSTNAME "tls.browserleaks.com"
+// #define REQUEST_PATH "/json"
+
+#define REQUEST_VSN_MINOR "1"
+
+// #define REQUEST_HOSTNAME "mir24.tv"
+// #define REQUEST_PATH "/news/16635210/dni-kultury-rossii-otkrylis-v-uzbekistane.-na-prazdnichnom-koncerte-vystupili-zvezdy-rossijskoj-estrada"
+
+#define REQUEST_HOSTNAME "cloudflare-ech.com"
+#define REQUEST_PATH "/"
+
 
 int main(void) {
     fputs("start\n", stderr);
@@ -537,18 +631,23 @@ int main(void) {
     const char httpreq[] =
         "GET " REQUEST_PATH " HTTP/1." REQUEST_VSN_MINOR "\r\n"
         "Host: " REQUEST_HOSTNAME "\r\n"
-        // "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\n"
+        "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\n"
         // "Accept-Encoding: gzip, deflate, br, zstd\r\n"
         "Accept-Language: en-US,en;q=0.9\r\n"
         "Cache-Control: no-cache\r\n"
+        "Connection: close\r\n"
         "Pragma: no-cache\r\n"
         "Priority: u=0, i\r\n"
+        "Referer: https://" REQUEST_HOSTNAME REQUEST_PATH "\r\n"
         "Sec-Ch-Ua: \"Not;A=Brand\";v=\"99\", \"Google Chrome\";v=\"139\", \"Chromium\";v=\"139\"\r\n"
-        "Sec-ch-ua-mobile: ?0\r\n"
-        "Sec-ch-ua-platform: \"Windows\"\r\n"
+        "Sec-Ch-Ua-Arch: \"x86\"\r\n"
+        "Sec-Ch-Ua-Full-Version-List: \"Not;A=Brand\";v=\"99.0.0.0\", \"Google Chrome\";v=\"139.0.7258.67\", \"Chromium\";v=\"139.0.7258.67\"\r\n"
+        "Sec-Ch-Ua-Mobile: ?0\r\n"
+        "Sec-Ch-Ua-Model: \"\"\r\n"
+        "Sec-Ch-Ua-Platform: \"Windows\"\r\n"
         "Sec-Fetch-Dest: document\r\n"
         "Sec-Fetch-Mode: navigate\r\n"
-        "Sec-Fetch-Site: none\r\n"
+        "Sec-Fetch-Site: same-origin\r\n"
         "Sec-Fetch-User: ?1\r\n"
         "Upgrade-Insecure-Requests: 1\r\n"
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36\r\n"
@@ -611,53 +710,6 @@ int main(void) {
     // Configure SSL_CTX
     SSL_CTX_set_keylog_callback(ssl_ctx, _osslcb_keylog_func);
 
-    if (!SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION))
-        fputs("Warning: SSL_CTX_set_min_proto_version failed\n", stderr);
-    if (!SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION))
-        fputs("Warning: SSL_CTX_set_max_proto_version failed\n", stderr);
-
-    // TLS 1.3 ciphersuites
-    if (!SSL_CTX_set_ciphersuites(ssl_ctx, "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256"))
-        fputs("Warning: SSL_CTX_set_ciphersuites failed\n", stderr);
-    // TLS 1.2 and lower cipher list
-    if (!SSL_CTX_set_cipher_list(ssl_ctx, "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:TLS_RSA_WITH_AES_128_GCM_SHA256:TLS_RSA_WITH_AES_256_GCM_SHA384:TLS_RSA_WITH_AES_128_CBC_SHA:TLS_RSA_WITH_AES_256_CBC_SHA"))
-        fputs("Warning: SSL_CTX_set_cipher_list failed\n", stderr);
-
-    SSL_CTX_clear_options(ssl_ctx, SSL_OP_LEGACY_EC_POINT_FORMATS);
-    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_ENCRYPT_THEN_MAC);
-    if (!SSL_CTX_set1_groups_list(ssl_ctx, "*X25519MLKEM768:*X25519:secp256r1:secp384r1"))
-        fputs("Warning: SSL_CTX_set1_groups_list failed\n", stderr);
-
-    if (!SSL_CTX_set1_sigalgs_list(ssl_ctx, "ecdsa_secp256r1_sha256:rsa_pss_rsae_sha256:rsa_pkcs1_sha256:ecdsa_secp384r1_sha384:rsa_pss_rsae_sha384:rsa_pkcs1_sha384:rsa_pss_rsae_sha512:rsa_pkcs1_sha512"))
-        fputs("Warning: SSL_CTX_set1_sigalgs_list failed\n", stderr);
-
-    // Requires OpenSSL to be built with brotli
-    int algs[] = {TLSEXT_comp_cert_brotli};
-    if (!SSL_CTX_set1_cert_comp_preference(ssl_ctx, algs, 1))
-        fputs("Warning: SSL_CTX_set1_cert_comp_preference failed\n", stderr);
-
-    if (!SSL_CTX_set_tlsext_status_type(ssl_ctx, TLSEXT_STATUSTYPE_ocsp))
-        fputs("Warning: SSL_CTX_set_tlsext_status_type failed\n", stderr);
-
-    unsigned char alpn[] = {
-        9, 'h', 'I', 'N', 'V', 'A', 'L', 'I', 'D', '2',
-        8, 'h', 't', 't', 'p', '/', '1', '.', *REQUEST_VSN_MINOR,
-    };
-    /* SSL_CTX_set_alpn_protos returns 0 for success! */
-    if (SSL_CTX_set_alpn_protos(ssl_ctx, alpn, sizeof(alpn)))
-        fputs("Warning: SSL_CTX_set_alpn_protos failed\n", stderr);
-
-    if (!SSL_CTX_enable_ct(ssl_ctx, SSL_CT_VALIDATION_PERMISSIVE))
-        fputs("Warning: SSL_CTX_enable_ct failed\n", stderr);
-
-    // TODO: shuffle GREASE, ALPS, ECH
-    if (!SSL_CTX_add_custom_ext(
-            ssl_ctx, 0x0a0a,
-            SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_SERVER_HELLO | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
-            _osslcb_custom_ext_add_cb_ex, _osslcb_custom_ext_free_cb_ex, NULL,
-            _osslcb_custom_ext_parse_cb_ex, NULL))
-        fputs("Warning: SSL_CTX_add_custom_ext failed for GREASE(0a0a)\n", stderr);
-
     TLS13_ALPS_CFG h2cfg = {
         .proto=invalidh2_alpn,
         .proto_len=sizeof(invalidh2_alpn),
@@ -668,36 +720,13 @@ int main(void) {
         .cfg_size=1,
         .cfgs=&h2cfg
     };
-    if (!SSL_CTX_add_custom_ext(
-            ssl_ctx, TLSEXT_TYPE_application_settings,
-            SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
-            _osslcb_custom_ext_add_cb_ex, _osslcb_custom_ext_free_cb_ex, &alps_add_arg,
-            _osslcb_custom_ext_parse_cb_ex, NULL))
-        fputs("Warning: SSL_CTX_add_custom_ext failed for ALPS\n", stderr);
+    unsigned char alpn[] = {
+        9, 'h', 'I', 'N', 'V', 'A', 'L', 'I', 'D', '2',
+        8, 'h', 't', 't', 'p', '/', '1', '.', *REQUEST_VSN_MINOR,
+    };
+    // do we need an abstraction over these three, e.g. ALPS_ADD_ARG, with .cfgs[X].settings == NULL meaning no ALPS?
 
-    if (!SSL_CTX_add_custom_ext(
-            ssl_ctx, TLSEXT_TYPE_encrypted_client_hello,
-            SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST | SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
-            _osslcb_custom_ext_add_cb_ex, _osslcb_custom_ext_free_cb_ex, NULL,
-            _osslcb_custom_ext_parse_cb_ex, NULL))
-        fputs("Warning: SSL_CTX_add_custom_ext failed for ECH\n", stderr);
-
-    // General traffic fingerprint:
-    // Ciphersuites:
-    // missing GREASE 3a3a at the beginning
-    // Extensions:
-    // [DONE] missing GREASE 19018(4a4a), beginning
-    // supported_groups 10(a)
-    // - missing GREASE aaaa, beginning
-    // [DONE] missing ALPS 17613(44cd)
-    // - 0003026832
-    // key_share 51(33)
-    // - missing GREASE aaaa, beginning
-    // missing GREASE 6682(1a1a), end
-    //
-    // Implementation progress:
-    // GREASE: https://github.com/openssl/openssl/issues/9660
-    // Full ALPS is impossible, use a dummy ALPN
+    (void)x_SSLCTX_setup_imp(ssl_ctx, &alps_add_arg, alpn, sizeof(alpn));
 
     SSL *ssl = SSL_new(ssl_ctx);
     if (ssl == NULL) {
