@@ -237,6 +237,7 @@ int _osslcb_custom_ext_add_cb_ex(
                 const TLS13_ALPS_CFG *current_cfg = (cfgs + i);
                 if (current_cfg->proto_len > UINT8_MAX) {
                     fprintf(stderr, "Protocol Name too long\n");
+                    free((unsigned char *)*out);
                     return *al = SSL_AD_INTERNAL_ERROR, -1;
                 }
                 *(ptr++) = (uint8_t)current_cfg->proto_len;
