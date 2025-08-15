@@ -533,8 +533,6 @@ int main(void) {
         _osslcb_exdata_new, _osslcb_exdata_dup, _osslcb_exdata_free);
 
     const char hn[] = REQUEST_HOSTNAME;
-    // const char httpreq[] = "GET / HTTP/1.1\r\nConnection: close\r\nHost: tls.browserleaks.com\r\n\r\n";
-    // #region HTTP request
 
     const char httpreq[] =
         "GET " REQUEST_PATH " HTTP/1." REQUEST_VSN_MINOR "\r\n"
@@ -555,9 +553,8 @@ int main(void) {
         "Upgrade-Insecure-Requests: 1\r\n"
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36\r\n"
         "\r\n";
-    // #endregion
-    // use 1.0 so that the tls.browserleaks.com server doesnt serve TE: chunked
-    // const char httpreq[] = "GET / HTTP/1.0\r\n\r\n";
+
+
     const int httpreq_size = sizeof(httpreq) - 1;
     int ret = 2;
 
@@ -611,6 +608,7 @@ int main(void) {
         goto free_sock;
     }
 
+    // Configure SSL_CTX
     SSL_CTX_set_keylog_callback(ssl_ctx, _osslcb_keylog_func);
 
     if (!SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION))
@@ -684,9 +682,6 @@ int main(void) {
             _osslcb_custom_ext_parse_cb_ex, NULL))
         fputs("Warning: SSL_CTX_add_custom_ext failed for ECH\n", stderr);
 
-    // ja4/ja3n: matches
-    // TODO: Full ALPS/ECH
-
     // General traffic fingerprint:
     // Ciphersuites:
     // missing GREASE 3a3a at the beginning
@@ -702,6 +697,7 @@ int main(void) {
     //
     // Implementation progress:
     // GREASE: https://github.com/openssl/openssl/issues/9660
+    // Full ALPS is impossible, use a dummy ALPN
 
     SSL *ssl = SSL_new(ssl_ctx);
     if (ssl == NULL) {
@@ -761,15 +757,15 @@ int main(void) {
             goto free_sslconn;
         }
     }
-free_sslconn:
+free_sslconn:;
     SSL_shutdown(ssl);
-free_ssl:
+free_ssl:;
     SSL_free(ssl);
-free_ssl_ctx:
+free_ssl_ctx:;
     SSL_CTX_free(ssl_ctx);
-free_sock:
+free_sock:;
     SOCKFD_CLOSE(sock);
-free_wsa:
+free_wsa:;
     SOCKET_CLEANUP();
     return ret;
 }
