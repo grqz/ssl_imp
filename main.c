@@ -11,7 +11,7 @@ typedef SOCKET platform_socket;
 #define GET_SOCKET_ERROR() WSAGetLastError()
 #define SOCKFD_CLOSE(sock) closesocket(sock)
 #define SOCKFD_INVALID INVALID_SOCKET
-#define SOCKFD_IS_INVALID(sock) sock == INVALID_SOCKET
+#define SOCKFD_IS_INVALID(sock) ((sock) == INVALID_SOCKET)
 #define SOCKET_CLEANUP() WSACleanup()
 #else
 #ifndef _POSIX_C_SOURCE
@@ -29,7 +29,7 @@ typedef SOCKET platform_socket;
 typedef int platform_socket;
 #define GET_SOCKET_ERROR() errno
 #define SOCKFD_CLOSE(sock) close(sock)
-#define SOCKFD_INVALID -1
+#define SOCKFD_INVALID (-1)
 #define SOCKFD_IS_INVALID(sock) ((sock) < 0)
 #define SOCKET_CLEANUP()
 #endif
