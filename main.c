@@ -85,6 +85,7 @@ uint8_t **pkt_internal_check_ppu8_(uint8_t **p) { return p; }
 typedef struct tls_1_3_alps_cfg_st {
     const uint8_t *proto;  // the protocol ALPN string, e.g., { 'h', '2' }
     uint8_t proto_len;  // the protocol string length, e.g., 2 for h2
+    uint8_t _p0[7];  // padding
     const uint8_t *settings;
     size_t settings_len;
 } TLS13_ALPS_CFG;
@@ -213,6 +214,11 @@ int x_SSL_has_application_settings(const SSL *ssl) {
     return !!SSL_get_ex_data(ssl, exdata_idx[EXDATA_ID_SSL_ALPSDATA]);
 }
 
+#ifndef SSL_EXT_TLS1_3_CLIENT_ENCRYPTED_EXTENSIONS
+// We don't have this in OpenSSL yet
+#define SSL_EXT_TLS1_3_CLIENT_ENCRYPTED_EXTENSIONS 0x00000
+#endif
+
 static inline
 int _osslcb_custom_ext_add_cb_ex(
     SSL *s, unsigned int ext_type,
@@ -226,15 +232,15 @@ int _osslcb_custom_ext_add_cb_ex(
     {
     case TLSEXT_TYPE_application_settings:;
         const TLS13_ALPS_ADD_ARG *palps_add_arg = add_arg;
+        const size_t alps_cfgs_size = palps_add_arg->cfg_size;
+        const TLS13_ALPS_CFG *alps_cfgs = palps_add_arg->cfgs;
         if (context & SSL_EXT_CLIENT_HELLO) {
-            const size_t cfgs_size = palps_add_arg->cfg_size;
-            const TLS13_ALPS_CFG *cfgs = palps_add_arg->cfgs;
             unsigned char *ptr;
             uint16_t msg_size;
             {
-                size_t supported_protos_size = cfgs_size;
-                for (size_t i = 0; i < cfgs_size; ++i)
-                    supported_protos_size += cfgs[i].proto_len;
+                size_t supported_protos_size = alps_cfgs_size;
+                for (size_t i = 0; i < alps_cfgs_size; ++i)
+                    supported_protos_size += alps_cfgs[i].proto_len;
                 if (supported_protos_size > UINT16_MAX) {
                     fprintf(stderr, "Supported Protocols too large\n");
                     return *al = SSL_AD_INTERNAL_ERROR, -1;
@@ -247,8 +253,8 @@ int _osslcb_custom_ext_add_cb_ex(
                 }
             }
             PKT_PUTU16(&ptr, msg_size);  // payload len
-            for (size_t i = 0; i < cfgs_size; ++i) {
-                const TLS13_ALPS_CFG *current_cfg = (cfgs + i);
+            for (size_t i = 0; i < alps_cfgs_size; ++i) {
+                const TLS13_ALPS_CFG *current_cfg = alps_cfgs + i;
                 PKT_PUTU8(&ptr, (uint8_t)current_cfg->proto_len);
                 memcpy(ptr, current_cfg->proto, current_cfg->proto_len);
                 ptr += current_cfg->proto_len;
@@ -259,8 +265,29 @@ int _osslcb_custom_ext_add_cb_ex(
                 free((unsigned char *)*out);
                 return *al = SSL_AD_INTERNAL_ERROR, -1;
             }
-#endif
+#endif  // NDEBUG
             return 1;
+        }
+        else if (context & SSL_EXT_TLS1_3_CLIENT_ENCRYPTED_EXTENSIONS) {
+            const unsigned char *alpn_data;
+            unsigned int alpn_data_len;
+            SSL_get0_alpn_selected(s, &alpn_data, &alpn_data_len);
+            if (alpn_data == NULL)  // no protocol has been selected
+                return *al = SSL_AD_ILLEGAL_PARAMETER, -1;
+            const TLS13_ALPS_CFG *alps_cfgs_end = alps_cfgs + alps_cfgs_size;
+            while (alps_cfgs++ != alps_cfgs_end)
+                if (alps_cfgs->proto_len == alpn_data_len && !memcmp(alps_cfgs->proto, alpn_data, alpn_data_len)) {
+                    unsigned char *ptr = malloc(*outlen = alps_cfgs->settings_len);
+                    *out = ptr;
+                    if (!ptr) {
+                        fprintf(stderr, "malloc failure\n");
+                        return *al = SSL_AD_INTERNAL_ERROR, -1;
+                    }
+                    memcpy(ptr, alps_cfgs->settings, alps_cfgs->settings_len);
+                    return 1;
+                }
+            // The server sends an ALPS, although the ALPN selected is not in our advertised ApplicationSettingsSupport
+            return *al = SSL_AD_ILLEGAL_PARAMETER, -1;
         }
         else return *al = SSL_AD_INTERNAL_ERROR, -1;
     case TLSEXT_TYPE_encrypted_client_hello:;
@@ -574,7 +601,7 @@ unsigned char x_SSLCTX_setup_imp(SSL_CTX *ssl_ctx, TLS13_ALPS_ADD_ARG *palps_add
 
     if (!SSL_CTX_add_custom_ext(
             ssl_ctx, TLSEXT_TYPE_application_settings,
-            SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
+            SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS | SSL_EXT_TLS1_3_CLIENT_ENCRYPTED_EXTENSIONS | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
             _osslcb_custom_ext_add_cb_ex, _osslcb_custom_ext_free_cb_ex, palps_add_arg,
             _osslcb_custom_ext_parse_cb_ex, NULL))
         fputs("Warning: SSL_CTX_add_custom_ext failed for ALPS\n", stderr);
@@ -610,13 +637,14 @@ unsigned char x_SSLCTX_setup_imp(SSL_CTX *ssl_ctx, TLS13_ALPS_ADD_ARG *palps_add
 // #define REQUEST_HOSTNAME "tls.browserleaks.com"
 // #define REQUEST_PATH "/json"
 
+
 #define REQUEST_VSN_MINOR "1"
 
-// #define REQUEST_HOSTNAME "mir24.tv"
-// #define REQUEST_PATH "/news/16635210/dni-kultury-rossii-otkrylis-v-uzbekistane.-na-prazdnichnom-koncerte-vystupili-zvezdy-rossijskoj-estrada"
+#define REQUEST_HOSTNAME "mir24.tv"
+#define REQUEST_PATH "/news/16635210/dni-kultury-rossii-otkrylis-v-uzbekistane.-na-prazdnichnom-koncerte-vystupili-zvezdy-rossijskoj-estrada"
 
-#define REQUEST_HOSTNAME "cloudflare-ech.com"
-#define REQUEST_PATH "/"
+// #define REQUEST_HOSTNAME "cloudflare-ech.com"
+// #define REQUEST_PATH "/"
 
 
 int main(void) {
