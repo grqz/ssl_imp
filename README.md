@@ -1,7 +1,7 @@
 This project aims to impersonate Chrome's TLS fingerprint with OpenSSL.
 
 # Dependencies
-Requires OpenSSL after [03541d7](<https://github.com/openssl/openssl/commit/03541d7302d016aa28d436364d72d58baa3e2114>) with brotli support.
+Requires OpenSSL(shared) after [03541d7](<https://github.com/openssl/openssl/commit/03541d7302d016aa28d436364d72d58baa3e2114>) with brotli support.
 
 # Building
 This project uses [CMake](<https://cmake.org/>) as its build system.
@@ -27,3 +27,4 @@ build/Release/ssl_imp
 ```sh
 build/ssl_imp
 ```
+
