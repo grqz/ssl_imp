@@ -14,13 +14,16 @@ typedef SOCKET platform_socket;
 #define SOCKFD_IS_INVALID(sock) sock == INVALID_SOCKET
 #define SOCKET_CLEANUP() WSACleanup()
 #else
-// TODO: support non-windows, should be simple, change headers, SOCKET/LastError/closesocket shim
-#error "This program only supports Windows!"
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200112L
+#endif
+
 #include <arpa/inet.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <unistd.h>
 #include <netinet/in.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <unistd.h>
 
 
 typedef int platform_socket;
@@ -55,7 +58,7 @@ static inline _compiler_ALWAYS_INLINE
 const uint8_t **_pkt_internal_check_ppu8c(const uint8_t **p) { return p; }
 #define DEFINE_CAST(Type) \
     static inline _compiler_ALWAYS_INLINE \
-    const Type _pkt_internal_cast_##Type(Type x) { return x; }
+    Type _pkt_internal_cast_##Type(Type x) { return x; }
 DEFINE_CAST(uint8_t)
 DEFINE_CAST(uint16_t)
 DEFINE_CAST(uint32_t)
@@ -208,7 +211,7 @@ int _osslcb_custom_ext_add_cb_ex(
 ) {
     switch (ext_type)
     {
-    case TLSEXT_TYPE_application_settings:
+    case TLSEXT_TYPE_application_settings:;
         const TLS13_ALPS_ADD_ARG *palps_add_arg = add_arg;
         if (context & SSL_EXT_CLIENT_HELLO) {
             const size_t cfgs_size = palps_add_arg->cfg_size;
@@ -251,10 +254,10 @@ int _osslcb_custom_ext_add_cb_ex(
             return 1;
         }
         else return *al = SSL_AD_INTERNAL_ERROR, -1;
-    case TLSEXT_TYPE_encrypted_client_hello:
+    case TLSEXT_TYPE_encrypted_client_hello:;
         const uint16_t n_enc = 32;  // precondition: n_enc
         const uint16_t n_tag = 16;
-        const int maximum_name_length = 255;  // ECHConfig.maximum_name_length
+        const uint8_t maximum_name_length = 255;  // ECHConfig.maximum_name_length
 
         unsigned char extlen_and_cfg_id[2];
         if (RAND_bytes(extlen_and_cfg_id, 2) != 1) {
@@ -263,7 +266,7 @@ int _osslcb_custom_ext_add_cb_ex(
         }
 
         // 105 is the minimum CH, plus 32 for some misc extensions, and a random 0~31 length for some other extensions
-        const uint16_t ich_snipadded_len = 105 + 32 + extlen_and_cfg_id[0] & 31 + maximum_name_length + 9;
+        const uint16_t ich_snipadded_len = 105 + 32 + (extlen_and_cfg_id[0] & 31) + maximum_name_length + 9;
         const uint16_t payld_size = ich_snipadded_len + 31 - ((ich_snipadded_len - 1) % 32) + n_tag;
 
         unsigned char *ptr = malloc(*outlen = 10 + n_enc + payld_size);
@@ -294,27 +297,29 @@ int _osslcb_custom_ext_add_cb_ex(
         *(uint16_t *)ptr = htons(n_enc); ptr += 2;  // enc len
         if (RAND_bytes(ptr, n_enc) != 1) {  // enc
             fprintf(stderr, "RAND_bytes failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
-            free(ptr);
+            free((unsigned char *)*out);
             return *al = SSL_AD_INTERNAL_ERROR, -1;
         }
         ptr += n_enc;
         *(uint16_t *)ptr = htons(payld_size); ptr += 2;  // payload len
         if (RAND_bytes(ptr, payld_size) != 1) {  // payload
             fprintf(stderr, "RAND_bytes failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
-            free(ptr);
+            free((unsigned char *)*out);
             return *al = SSL_AD_INTERNAL_ERROR, -1;
         }
 
 #ifndef NDEBUG
         if (ptr - *out + payld_size - *outlen != 0) {
             fprintf(stderr, "Error serialising ECH: expected ech_size %zu, got %zu\n", *outlen, ptr - *out + payld_size);
-            free(ptr);
+            free((unsigned char *)*out);
             return *al = SSL_AD_INTERNAL_ERROR, -1;
         }
 #endif
-    case 0x0a0a:  // GREASE
+        // fallthrough magic comment
+        // fall through
+    case 0x0a0a:;  // GREASE
         return 1;
-    default:
+    default:;
         return *al = SSL_AD_INTERNAL_ERROR, -1;
     }
 }
@@ -328,11 +333,17 @@ void _osslcb_custom_ext_free_cb_ex(
 ) {
     switch (ext_type)
     {
-    case TLSEXT_TYPE_application_settings:
-    case TLSEXT_TYPE_encrypted_client_hello:
+    case TLSEXT_TYPE_application_settings:;
+        // fallthrough magic comment
+        // fall through
+    case TLSEXT_TYPE_encrypted_client_hello:;
         free((unsigned char *)out);
-    case 0x0a0a:
-    default:
+        // fallthrough magic comment
+        // fall through
+    case 0x0a0a:;
+        // fallthrough magic comment
+        // fall through
+    default:;
         return;
     }
 }
@@ -348,9 +359,9 @@ int _osslcb_custom_ext_parse_cb_ex(
 ) {
     switch (ext_type)
     {
-    case 0x0a0a:  // GREASE
+    case 0x0a0a:;  // GREASE
         return 1;  // success
-    case TLSEXT_TYPE_encrypted_client_hello:
+    case TLSEXT_TYPE_encrypted_client_hello:;
         // check the extension syntactically and abort the connection
         // with a "decode_error" alert if it is invalid
         if (context & SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST) {
@@ -486,7 +497,7 @@ int _osslcb_custom_ext_parse_cb_ex(
         }
         else
             return *al = SSL_AD_UNEXPECTED_MESSAGE, -1;
-    case TLSEXT_TYPE_application_settings:
+    case TLSEXT_TYPE_application_settings:;
         if (context & SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS) {
             ALPS_STORE *palps_store = SSL_get_ex_data(s, alps_exdata_id);
             palps_store->len = inlen;
@@ -497,14 +508,22 @@ int _osslcb_custom_ext_parse_cb_ex(
                 "Try using an invalid ALPN for negotiation!\n", stderr);
             return 1;
         }
-        // fallthrough to unexpected msg otherwise
-    default:
+        // fallthrough magic comment
+        // fall through
+    default:;
         *al = SSL_AD_UNEXPECTED_MESSAGE;
         return 0;
     }
 }
 
+#define REQUEST_VSN_MINOR "0"
+
 #define REQUEST_HOSTNAME "tls.browserleaks.com"
+#define REQUEST_PATH "/json"
+
+// #define REQUEST_VSN_MINOR "1"
+// #define REQUEST_HOSTNAME "www.nytimes.com"
+// #define REQUEST_PATH "/2023/12/02/business/air-traffic-controllers-safety.html"
 
 int main(void) {
     fputs("start\n", stderr);
@@ -515,7 +534,28 @@ int main(void) {
 
     const char hn[] = REQUEST_HOSTNAME;
     // const char httpreq[] = "GET / HTTP/1.1\r\nConnection: close\r\nHost: tls.browserleaks.com\r\n\r\n";
-    const char httpreq[] = "GET / HTTP/1.1\r\nHost: " REQUEST_HOSTNAME "\r\nConnection: close\r\n\r\n";
+    // #region HTTP request
+
+    const char httpreq[] =
+        "GET " REQUEST_PATH " HTTP/1." REQUEST_VSN_MINOR "\r\n"
+        "Host: " REQUEST_HOSTNAME "\r\n"
+        // "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\n"
+        // "Accept-Encoding: gzip, deflate, br, zstd\r\n"
+        "Accept-Language: en-US,en;q=0.9\r\n"
+        "Cache-Control: no-cache\r\n"
+        "Pragma: no-cache\r\n"
+        "Priority: u=0, i\r\n"
+        "Sec-Ch-Ua: \"Not;A=Brand\";v=\"99\", \"Google Chrome\";v=\"139\", \"Chromium\";v=\"139\"\r\n"
+        "Sec-ch-ua-mobile: ?0\r\n"
+        "Sec-ch-ua-platform: \"Windows\"\r\n"
+        "Sec-Fetch-Dest: document\r\n"
+        "Sec-Fetch-Mode: navigate\r\n"
+        "Sec-Fetch-Site: none\r\n"
+        "Sec-Fetch-User: ?1\r\n"
+        "Upgrade-Insecure-Requests: 1\r\n"
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36\r\n"
+        "\r\n";
+    // #endregion
     // use 1.0 so that the tls.browserleaks.com server doesnt serve TE: chunked
     // const char httpreq[] = "GET / HTTP/1.0\r\n\r\n";
     const int httpreq_size = sizeof(httpreq) - 1;
@@ -603,7 +643,7 @@ int main(void) {
 
     unsigned char alpn[] = {
         9, 'h', 'I', 'N', 'V', 'A', 'L', 'I', 'D', '2',
-        8, 'h', 't', 't', 'p', '/', '1', '.', '0',
+        8, 'h', 't', 't', 'p', '/', '1', '.', *REQUEST_VSN_MINOR,
     };
     /* SSL_CTX_set_alpn_protos returns 0 for success! */
     if (SSL_CTX_set_alpn_protos(ssl_ctx, alpn, sizeof(alpn)))
