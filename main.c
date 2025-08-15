@@ -106,20 +106,19 @@ unsigned char handle_ossl_err(SSL *ssl, int *pres, const char *desc) {
     return 0;
 }
 
-static const size_t allocsize_table[] = {
+static const size_t exdata_size_table[] = {
     sizeof(ALPS_STORE),
     #define EXDATA_ID_SSL_ALPSDATA 0
 };
 
-// TODO: should this be a table?
-static int alps_exdata_id;
+static int exdata_idx[sizeof(exdata_size_table) - 1];
 
 static inline
 void _osslcb_exdata_new(
     void *parent, void *ptr, CRYPTO_EX_DATA *ad,
     int idx, long argl, void *argp
 ) {
-    void *store = calloc(1, allocsize_table[argl]);
+    void *store = calloc(1, exdata_size_table[argl]);
     SSL_set_ex_data(parent, idx, store);
 }
 
@@ -136,10 +135,10 @@ int _osslcb_exdata_dup(
     CRYPTO_EX_DATA *to, const CRYPTO_EX_DATA *from,
     void **from_d, int idx, long argl, void *argp
 ) {
-    void *store = malloc(allocsize_table[argl]);
+    void *store = malloc(exdata_size_table[argl]);
     if (!store)
         return 0;
-    memcpy(store, *from_d, allocsize_table[argl]);
+    memcpy(store, *from_d, exdata_size_table[argl]);
     *from_d = store;
     return 1;
 }
@@ -186,7 +185,7 @@ void _x_SSL_get0_peer_application_settings(
     const uint8_t **out_data,
     size_t *out_len
 ) {
-    ALPS_STORE *palps_store = SSL_get_ex_data(ssl, alps_exdata_id);
+    ALPS_STORE *palps_store = SSL_get_ex_data(ssl, exdata_idx[EXDATA_ID_SSL_ALPSDATA]);
     if (!palps_store) {
         *out_len = 0;
         return;
@@ -197,7 +196,7 @@ void _x_SSL_get0_peer_application_settings(
 }
 static inline
 int _x_SSL_has_application_settings(const SSL *ssl) {
-    return !!SSL_get_ex_data(ssl, alps_exdata_id);
+    return !!SSL_get_ex_data(ssl, exdata_idx[EXDATA_ID_SSL_ALPSDATA]);
 }
 
 static inline
@@ -499,7 +498,7 @@ int _osslcb_custom_ext_parse_cb_ex(
             return *al = SSL_AD_UNEXPECTED_MESSAGE, -1;
     case TLSEXT_TYPE_application_settings:;
         if (context & SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS) {
-            ALPS_STORE *palps_store = SSL_get_ex_data(s, alps_exdata_id);
+            ALPS_STORE *palps_store = SSL_get_ex_data(s, exdata_idx[EXDATA_ID_SSL_ALPSDATA]);
             palps_store->len = inlen;
             palps_store->data = in;
             fputs(
@@ -528,7 +527,7 @@ int _osslcb_custom_ext_parse_cb_ex(
 int main(void) {
     fputs("start\n", stderr);
 
-    alps_exdata_id = SSL_get_ex_new_index(
+    exdata_idx[EXDATA_ID_SSL_ALPSDATA] = SSL_get_ex_new_index(
         EXDATA_ID_SSL_ALPSDATA, NULL,
         _osslcb_exdata_new, _osslcb_exdata_dup, _osslcb_exdata_free);
 
