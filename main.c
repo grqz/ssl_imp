@@ -35,11 +35,11 @@ typedef int platform_socket;
 #endif
 
 #ifdef _MSC_VER
-#define _compiler_ALWAYS_INLINE __forceinline
+#define compiler_ALWAYS_INLINE __forceinline
 #elif defined(__clang__) || defined(__GNUC__)
-#define _compiler_ALWAYS_INLINE __attribute__((always_inline))
+#define compiler_ALWAYS_INLINE __attribute__((always_inline))
 #else
-#define _compiler_ALWAYS_INLINE
+#define compiler_ALWAYS_INLINE
 #endif
 
 #include <openssl/ssl.h>
@@ -57,21 +57,21 @@ typedef int platform_socket;
 #define pkt_internal_VOID_(...) ((void)(__VA_ARGS__))
 #define pkt_internal_NEXT_PTR_(p) (*((p)++))
 #define pkt_internal_DEFINE_CAST_(Type) \
-    static inline _compiler_ALWAYS_INLINE \
+    static inline compiler_ALWAYS_INLINE \
     Type pkt_internal_impl_cast_##Type(Type x) { return x; }
 pkt_internal_DEFINE_CAST_(uint8_t)
 pkt_internal_DEFINE_CAST_(uint16_t)
 pkt_internal_DEFINE_CAST_(uint32_t)
 pkt_internal_DEFINE_CAST_(uint64_t)
 
-static inline _compiler_ALWAYS_INLINE
+static inline compiler_ALWAYS_INLINE
 const uint8_t **pkt_internal_check_ppu8c_(const uint8_t **p) { return p; }
 #define pkt_internal_PU8C_(pp) (*pkt_internal_check_ppu8c_(pp))
 #define pkt_internal_CAST_(Type, x) (pkt_internal_impl_cast_##Type(x))
 #define PKT_GETU8(pp) pkt_internal_CAST_(uint8_t, pkt_internal_NEXT_PTR_(pkt_internal_PU8C_(pp)))
 #define PKT_GETU16(pp) pkt_internal_CAST_(uint16_t, ((uint16_t)PKT_GETU8(pp) << 8) + PKT_GETU8(pp))
 
-static inline _compiler_ALWAYS_INLINE
+static inline compiler_ALWAYS_INLINE
 uint8_t **pkt_internal_check_ppu8_(uint8_t **p) { return p; }
 #define pkt_internal_PU8_(pp) (*pkt_internal_check_ppu8_(pp))
 #define PKT_internal_PUTOCTET_(pp, v) (pkt_internal_NEXT_PTR_(pkt_internal_PU8_(pp)) = ((v) & 0xFF))
@@ -129,7 +129,7 @@ static const size_t exdata_size_table[] = {
 static int exdata_idx[COUNT_OF(exdata_size_table)];
 
 static inline
-void _osslcb_exdata_new(
+void osslcb_exdata_new(
     void *parent, void *ptr, CRYPTO_EX_DATA *ad,
     int idx, long argl, void *argp
 ) {
@@ -138,7 +138,7 @@ void _osslcb_exdata_new(
 }
 
 static inline
-void _osslcb_exdata_free(
+void osslcb_exdata_free(
     void *parent, void *ptr, CRYPTO_EX_DATA *ad,
     int idx, long argl, void *argp
 ) {
@@ -146,7 +146,7 @@ void _osslcb_exdata_free(
 }
 
 static inline
-int _osslcb_exdata_dup(
+int osslcb_exdata_dup(
     CRYPTO_EX_DATA *to, const CRYPTO_EX_DATA *from,
     void **from_d, int idx, long argl, void *argp
 ) {
@@ -161,7 +161,7 @@ int _osslcb_exdata_dup(
 FILE *sslkeylogfile = NULL;
 unsigned char keylogfile_err = 0;
 static inline
-void _osslcb_keylog_func(const SSL *ssl, const char *line) {
+void osslcb_keylog_func(const SSL *ssl, const char *line) {
     if (!sslkeylogfile) {
         if (keylogfile_err) return;
         const char *filename = getenv("SSLKEYLOGFILE");
@@ -220,7 +220,7 @@ int x_SSL_has_application_settings(const SSL *ssl) {
 #endif
 
 static inline
-int _osslcb_custom_ext_add_cb_ex(
+int osslcb_custom_ext_add_cb_ex(
     SSL *s, unsigned int ext_type,
     unsigned int context,
     const unsigned char **out,
@@ -361,7 +361,7 @@ int _osslcb_custom_ext_add_cb_ex(
 }
 
 static inline
-void _osslcb_custom_ext_free_cb_ex(
+void osslcb_custom_ext_free_cb_ex(
     SSL *s, unsigned int ext_type,
     unsigned int context,
     const unsigned char *out,
@@ -385,7 +385,7 @@ void _osslcb_custom_ext_free_cb_ex(
 }
 
 static inline
-int _osslcb_custom_ext_parse_cb_ex(
+int osslcb_custom_ext_parse_cb_ex(
     SSL *s, unsigned int ext_type,
     unsigned int context,
     const unsigned char *in,
@@ -595,22 +595,22 @@ unsigned char x_SSLCTX_setup_imp(SSL_CTX *ssl_ctx, TLS13_ALPS_ADD_ARG *palps_add
     if (!SSL_CTX_add_custom_ext(
             ssl_ctx, 0x0a0a,
             SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_SERVER_HELLO | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
-            _osslcb_custom_ext_add_cb_ex, _osslcb_custom_ext_free_cb_ex, NULL,
-            _osslcb_custom_ext_parse_cb_ex, NULL))
+            osslcb_custom_ext_add_cb_ex, osslcb_custom_ext_free_cb_ex, NULL,
+            osslcb_custom_ext_parse_cb_ex, NULL))
         fputs("Warning: SSL_CTX_add_custom_ext failed for GREASE(0a0a)\n", stderr);
 
     if (!SSL_CTX_add_custom_ext(
             ssl_ctx, TLSEXT_TYPE_application_settings,
             SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS | SSL_EXT_TLS1_3_CLIENT_ENCRYPTED_EXTENSIONS | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
-            _osslcb_custom_ext_add_cb_ex, _osslcb_custom_ext_free_cb_ex, palps_add_arg,
-            _osslcb_custom_ext_parse_cb_ex, NULL))
+            osslcb_custom_ext_add_cb_ex, osslcb_custom_ext_free_cb_ex, palps_add_arg,
+            osslcb_custom_ext_parse_cb_ex, NULL))
         fputs("Warning: SSL_CTX_add_custom_ext failed for ALPS\n", stderr);
 
     if (!SSL_CTX_add_custom_ext(
             ssl_ctx, TLSEXT_TYPE_encrypted_client_hello,
             SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST | SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
-            _osslcb_custom_ext_add_cb_ex, _osslcb_custom_ext_free_cb_ex, NULL,
-            _osslcb_custom_ext_parse_cb_ex, NULL))
+            osslcb_custom_ext_add_cb_ex, osslcb_custom_ext_free_cb_ex, NULL,
+            osslcb_custom_ext_parse_cb_ex, NULL))
         fputs("Warning: SSL_CTX_add_custom_ext failed for ECH\n", stderr);
 
     // General traffic fingerprint:
@@ -652,7 +652,7 @@ int main(void) {
 
     exdata_idx[EXDATA_ID_SSL_ALPSDATA] = SSL_get_ex_new_index(
         EXDATA_ID_SSL_ALPSDATA, NULL,
-        _osslcb_exdata_new, _osslcb_exdata_dup, _osslcb_exdata_free);
+        osslcb_exdata_new, osslcb_exdata_dup, osslcb_exdata_free);
 
     const char hn[] = REQUEST_HOSTNAME;
 
@@ -736,7 +736,7 @@ int main(void) {
     }
 
     // Configure SSL_CTX
-    SSL_CTX_set_keylog_callback(ssl_ctx, _osslcb_keylog_func);
+    SSL_CTX_set_keylog_callback(ssl_ctx, osslcb_keylog_func);
 
     TLS13_ALPS_CFG h2cfg = {
         .proto=invalidh2_alpn,
