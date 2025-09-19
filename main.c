@@ -191,8 +191,8 @@ void osslcb_keylog_func(const SSL *ssl, const char *line) {
 #define TLSEXT_TYPE_encrypted_client_hello 65037
 #endif
 
-static const unsigned char h2_alpn[2] = "h2";
-static const unsigned char invalidh2_alpn[9] = "hINVALID2";
+static const unsigned char h2_alpn[2] = {'h', '2'};
+static const unsigned char invalidh2_alpn[9] = {'h', 'I', 'N', 'V', 'A', 'L', 'I', 'D', '2'};
 
 static inline
 void x_SSL_get0_peer_application_settings(

@@ -11,7 +11,7 @@ find_package(OpenSSL REQUIRED)
 
 string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" OSSL_VSN_NUM "${OPENSSL_VERSION}")
 if (NOT OSSL_VSN_NUM VERSION_GREATER_EQUAL "3.6.0")
-  message(FATAL_ERROR "OpenSSL version must be >= 3.6.0, but found ${OSSL_VSN_NUM} at ${OPENSSL_INCLUDE_DIR} under ${OPENSSL_ROOT_DIR}")
+	message(FATAL_ERROR "OpenSSL version must be >= 3.6.0, but found ${OSSL_VSN_NUM} at ${OPENSSL_SSL_LIBRARY} (hint root dir ${OPENSSL_ROOT_DIR})")
 endif()
 
 if (MSVC)
