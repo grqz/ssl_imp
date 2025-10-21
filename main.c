@@ -24,6 +24,7 @@ typedef SOCKET platform_socket;
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <errno.h>
 
 
 typedef int platform_socket;
@@ -50,7 +51,6 @@ typedef int platform_socket;
 #include <stdint.h>
 #include <stddef.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <limits.h>
 #include <inttypes.h>
 
@@ -629,19 +629,19 @@ unsigned char x_SSLCTX_setup_imp(SSL_CTX *ssl_ctx, TLS13_ALPS_ADD_ARG *palps_add
     // Implementation progress:
     // GREASE: https://github.com/openssl/openssl/issues/9660
     // Full ALPS is impossible, use a dummy ALPN
+    // ECH: https://github.com/openssl/openssl/tree/feature/ech
     return ret;
 }
 
-// #define REQUEST_VSN_MINOR "0"
-
-// #define REQUEST_HOSTNAME "tls.browserleaks.com"
-// #define REQUEST_PATH "/json"
-
-
 #define REQUEST_VSN_MINOR "1"
 
-#define REQUEST_HOSTNAME "mir24.tv"
-#define REQUEST_PATH "/news/16635210/dni-kultury-rossii-otkrylis-v-uzbekistane.-na-prazdnichnom-koncerte-vystupili-zvezdy-rossijskoj-estrada"
+#define REQUEST_HOSTNAME "tls.browserleaks.com"
+#define REQUEST_PATH "/json"
+
+
+// 200 on good fingerprint, 403 on bad
+// #define REQUEST_HOSTNAME "mir24.tv"
+// #define REQUEST_PATH "/news/16635210/dni-kultury-rossii-otkrylis-v-uzbekistane.-na-prazdnichnom-koncerte-vystupili-zvezdy-rossijskoj-estrada"
 
 // #define REQUEST_HOSTNAME "cloudflare-ech.com"
 // #define REQUEST_PATH "/"
