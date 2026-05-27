@@ -44,6 +44,7 @@ typedef int platform_socket;
 #endif
 
 #include <openssl/ssl.h>
+#include <openssl/ech.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
 
@@ -184,11 +185,14 @@ void osslcb_keylog_func(const SSL *ssl, const char *line) {
 }
 
 #ifndef TLSEXT_TYPE_application_settings
-#define TLSEXT_TYPE_application_settings 17613
+#define TLSEXT_TYPE_application_settings 0x44cd
 #endif
 
-#ifndef TLSEXT_TYPE_encrypted_client_hello
-#define TLSEXT_TYPE_encrypted_client_hello 65037
+#ifndef TLSEXT_TYPE_ech
+#define x_OSSLECH 0
+#define TLSEXT_TYPE_ech 0xfe0d
+#else
+#define x_OSSLECH 1
 #endif
 
 static const unsigned char h2_alpn[2] = {'h', '2'};
@@ -290,7 +294,7 @@ int osslcb_custom_ext_add_cb_ex(
             return *al = SSL_AD_ILLEGAL_PARAMETER, -1;
         }
         else return *al = SSL_AD_INTERNAL_ERROR, -1;
-    case TLSEXT_TYPE_encrypted_client_hello:;
+    case TLSEXT_TYPE_ech:;
         const uint16_t n_enc = 32;  // precondition: n_enc
         const uint16_t n_tag = 16;
         const uint8_t maximum_name_length = 255;  // ECHConfig.maximum_name_length
@@ -372,7 +376,7 @@ void osslcb_custom_ext_free_cb_ex(
     case TLSEXT_TYPE_application_settings:;
         // fallthrough magic comment
         // fall through
-    case TLSEXT_TYPE_encrypted_client_hello:;
+    case TLSEXT_TYPE_ech:;
         free((unsigned char *)out);
         // fallthrough magic comment
         // fall through
@@ -397,7 +401,7 @@ int osslcb_custom_ext_parse_cb_ex(
     {
     case 0x0a0a:;  // GREASE
         return 1;  // success
-    case TLSEXT_TYPE_encrypted_client_hello:;
+    case TLSEXT_TYPE_ech:;
         // check the extension syntactically and abort the connection
         // with a "decode_error" alert if it is invalid
         if (context & SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST) {
@@ -444,7 +448,7 @@ int osslcb_custom_ext_parse_cb_ex(
                 fprintf(stderr,
                     "ECHConfig common: version %" PRIu16 ", length %" PRIu16 "\n",
                     version, length);
-                if (version == TLSEXT_TYPE_encrypted_client_hello) {
+                if (version == TLSEXT_TYPE_ech) {
                     /**struct {
                      *     HpkeKeyConfig key_config;
                      *     uint8 maximum_name_length;
@@ -553,7 +557,7 @@ int osslcb_custom_ext_parse_cb_ex(
 }
 
 static inline
-unsigned char x_SSLCTX_setup_imp(SSL_CTX *ssl_ctx, TLS13_ALPS_ADD_ARG *palps_add_arg, unsigned char *alpn, unsigned int alpn_size) {
+unsigned char x_SSL_CTX_setup_imp(SSL_CTX *ssl_ctx, TLS13_ALPS_ADD_ARG *palps_add_arg, unsigned char *alpn, unsigned int alpn_size) {
     unsigned char ret = 0;
 
     if (!SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION))
@@ -569,7 +573,14 @@ unsigned char x_SSLCTX_setup_imp(SSL_CTX *ssl_ctx, TLS13_ALPS_ADD_ARG *palps_add
         fputs("Warning: SSL_CTX_set_cipher_list failed\n", stderr);
 
     SSL_CTX_clear_options(ssl_ctx, SSL_OP_LEGACY_EC_POINT_FORMATS);
-    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_ENCRYPT_THEN_MAC);
+
+    SSL_CTX_set_options(
+        ssl_ctx,
+        SSL_OP_NO_ENCRYPT_THEN_MAC
+#ifdef SSL_OP_GREASE
+        | SSL_OP_GREASE
+#endif
+    );
     if (!SSL_CTX_set1_groups_list(ssl_ctx, "*X25519MLKEM768:*X25519:secp256r1:secp384r1"))
         fputs("Warning: SSL_CTX_set1_groups_list failed\n", stderr);
 
@@ -606,30 +617,36 @@ unsigned char x_SSLCTX_setup_imp(SSL_CTX *ssl_ctx, TLS13_ALPS_ADD_ARG *palps_add
             osslcb_custom_ext_parse_cb_ex, NULL))
         fputs("Warning: SSL_CTX_add_custom_ext failed for ALPS\n", stderr);
 
+#if !x_OSSLECH
     if (!SSL_CTX_add_custom_ext(
-            ssl_ctx, TLSEXT_TYPE_encrypted_client_hello,
+            ssl_ctx, TLSEXT_TYPE_ech,
             SSL_EXT_CLIENT_HELLO | SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST | SSL_EXT_TLS1_3_ENCRYPTED_EXTENSIONS | SSL_EXT_TLS_IMPLEMENTATION_ONLY | SSL_EXT_TLS1_3_ONLY,
             osslcb_custom_ext_add_cb_ex, osslcb_custom_ext_free_cb_ex, NULL,
             osslcb_custom_ext_parse_cb_ex, NULL))
         fputs("Warning: SSL_CTX_add_custom_ext failed for ECH\n", stderr);
+#endif
 
     // General traffic fingerprint:
     // Ciphersuites:
     // missing GREASE 3a3a at the beginning
+    // [DONE] SSL_OP_GREASE: random, beginning
     // Extensions:
     // [DONE] missing GREASE 19018(4a4a), beginning
+    // [DONE] SSL_OP_GREASE: random*2, end
     // supported_groups 10(a)
     // - missing GREASE aaaa, beginning
+    // [DONE] SSL_OP_GREASE: random, beginning
     // [DONE] missing ALPS 17613(44cd)
     // - 0003026832
     // key_share 51(33)
     // - missing GREASE aaaa, beginning
+    // [DONE] SSL_OP_GREASE: random, beginning
     // missing GREASE 6682(1a1a), end
     //
     // Implementation progress:
-    // GREASE: https://github.com/openssl/openssl/issues/9660
+    // GREASE: a1420a699d2589c2c524ea1f569747f6aaa738f3
     // Full ALPS is impossible, use a dummy ALPN
-    // ECH: https://github.com/openssl/openssl/tree/feature/ech
+    // ECH: PR <https://github.com/openssl/openssl/pull/30086>, bb1783de9471a33023b42a25eb0aaf8920cc9fd1 to 6fb07d7062229923ee147ea48956c0fa5bfbb1d5
     return ret;
 }
 
@@ -754,7 +771,7 @@ int main(void) {
     };
     // do we need an abstraction over these three, e.g. ALPS_ADD_ARG, with .cfgs[X].settings == NULL meaning no ALPS?
 
-    (void)x_SSLCTX_setup_imp(ssl_ctx, &alps_add_arg, alpn, sizeof(alpn));
+    (void)x_SSL_CTX_setup_imp(ssl_ctx, &alps_add_arg, alpn, sizeof(alpn));
 
     SSL *ssl = SSL_new(ssl_ctx);
     if (ssl == NULL) {
@@ -763,6 +780,12 @@ int main(void) {
         ret = 1;
         goto free_ssl_ctx;
     }
+
+#if x_OSSLECH
+    // man SSL_set1_echstore(3ossl)
+    if (!SSL_ech_set1_grease_suite(ssl, "P-256,hkdf-sha256,aes-128-gcm"))
+        fputs("Warning: SSL_ech_set1_grease_suite\n", stderr);
+#endif
     if (!SSL_set_tlsext_host_name(ssl, hn))
         fputs("Warning: SSL_set_tlsext_host_name failed\n", stderr);
     if (!SSL_set_fd(ssl, (int)sock)) {
