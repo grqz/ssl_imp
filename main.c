@@ -44,7 +44,12 @@ typedef int platform_socket;
 #endif
 
 #include <openssl/ssl.h>
+#if __has_include(<openssl/ech.h>)
 #include <openssl/ech.h>
+#define x_OSSLECH 1
+#else
+#define x_OSSLECH 0
+#endif
 #include <openssl/err.h>
 #include <openssl/rand.h>
 
@@ -189,10 +194,7 @@ void osslcb_keylog_func(const SSL *ssl, const char *line) {
 #endif
 
 #ifndef TLSEXT_TYPE_ech
-#define x_OSSLECH 0
 #define TLSEXT_TYPE_ech 0xfe0d
-#else
-#define x_OSSLECH 1
 #endif
 
 static const unsigned char h2_alpn[2] = {'h', '2'};
